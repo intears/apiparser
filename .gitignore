@@ -1,0 +1,28 @@
+# CMake
+build/
+cmake-build-*/
+
+# Compilation database
+compile_commands.json
+
+# IDE/editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# C/C++
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.exe
+
+# Testing/coverage
+Testing/
+*.gcda
+*.gcno
+*.gcov
+coverage/
