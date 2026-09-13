@@ -20,6 +20,8 @@ struct HttpRequest {
 
 struct HttpResponse {
     int statusCode = 0;
+    std::string statusText;
+
 
     std::map<std::string, std::string> headers;
 

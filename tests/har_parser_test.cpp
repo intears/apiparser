@@ -107,3 +107,47 @@ TEST_F(HarParserTest, ReportsMissingFile)
         );
     }
 }
+
+TEST_F(HarParserTest, ParseMutipleResponseTransacations)
+{
+    const auto document = parser.parse(fixture("response.har"));
+
+    ASSERT_EQ(document.transactions.size(), 3);
+
+    EXPECT_EQ(
+        document.transactions[0].request.method,
+        "GET"
+    );
+
+    EXPECT_EQ(
+        document.transactions[1].request.method,
+        "POST"
+    );
+
+    EXPECT_EQ(
+        document.transactions[2].request.method,
+        "GET"
+    );
+
+    ASSERT_EQ(
+        document.transactions[0].response->headers.size(), 2
+    );
+
+    ASSERT_EQ(
+        document.transactions[1].response->headers.size(), 2
+    );
+
+    ASSERT_EQ(
+        document.transactions[2].response->headers.size(), 1
+    );
+
+    EXPECT_EQ(document.transactions[0].response->statusCode, 200);
+    EXPECT_EQ(document.transactions[1].response->statusCode, 201);
+    EXPECT_EQ(document.transactions[2].response->statusCode, 404);
+
+    EXPECT_EQ(document.transactions[0].response->statusText, "OK");
+    EXPECT_EQ(document.transactions[1].response->statusText, "Created");
+    EXPECT_EQ(document.transactions[2].response->statusText, "Not Found");
+
+
+}

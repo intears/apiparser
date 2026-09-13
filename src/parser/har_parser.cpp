@@ -88,6 +88,9 @@ HttpResponse HarParser::parseResponse(const nlohmann::json &response) {
             parseHeaders(response["headers"]);
     }
 
+    result.statusCode = response["status"];
+    result.statusText = response["statusText"];
+
     return result;
 
 }
