@@ -1,5 +1,6 @@
 #include "apigen/parser/har_parser.hpp"
 #include "apigen/core/types.hpp"
+#include "apigen/core/errors.hpp"
 
 #include <fstream>
 #include <stdexcept>
@@ -10,7 +11,7 @@ HttpDocument HarParser::parse(const std::filesystem::path &file) {
   std::ifstream input(file);
 
   if (!input) {
-    throw std::runtime_error("Failed to open HAR file: " + file.string());
+    throw apigen::InvalidHarError(ErrorCode::FileNotFound, "Failed to open HAR file: " + file.string());
   }
 
   nlohmann::json har;
@@ -18,21 +19,19 @@ HttpDocument HarParser::parse(const std::filesystem::path &file) {
   try {
     input >> har;
   } catch (const nlohmann::json::parse_error &e) {
-    throw std::runtime_error("Invalid JSON in HAR file: " +
-                             std::string(e.what()));
+    throw apigen::InvalidJsonError(ErrorCode::InvalidJson, "Invalid JSON in HAR file: " + std::string(e.what()));
   }
 
   if (!har.contains("log")) {
-    throw std::runtime_error("Invalid HAR file: missing 'log'");
+    throw apigen::InvalidHarError(ErrorCode::MissingHarLog, "Invalid HAR file: missing 'log'");
   }
 
   if (!har["log"].contains("entries")) {
-    throw std::runtime_error("Invalid HAR file: missing 'log.entries'");
+    throw apigen::InvalidHarError(ErrorCode::MissingHarEntries, "Invalid HAR file: missing 'log.entries'");
   }
 
   if (!har["log"]["entries"].is_array()) {
-    throw std::runtime_error(
-        "Invalid HAR file: 'log.entries' must be an array");
+    throw apigen::InvalidHarError(ErrorCode::InvalidHar, "Invalid HAR file: 'log.entries' must be an array");
   }
 
   HttpDocument document;
@@ -40,7 +39,7 @@ HttpDocument HarParser::parse(const std::filesystem::path &file) {
   for (const auto &entry : har["log"]["entries"]) {
 
     if (!entry.contains("request")) {
-      throw std::runtime_error("Invalid HAR entry: missing 'request'");
+      throw apigen::InvalidHarError(ErrorCode::InvalidHar, "Invalid HAR entry: missing 'request'");
     }
 
 
