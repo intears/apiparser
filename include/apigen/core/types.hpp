@@ -15,14 +15,18 @@ struct HttpRequest {
     std::map<std::string, std::string> headers;
     std::map<std::string, std::string> query;
 
+    std::optional<std::string> contentType;
     std::optional<std::string> body;
 };
 
 struct HttpResponse {
     int statusCode = 0;
+    std::string statusText;
+
 
     std::map<std::string, std::string> headers;
 
+    std::optional<std::string> contentType;
     std::optional<std::string> body;
 
 };
