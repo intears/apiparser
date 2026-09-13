@@ -54,6 +54,16 @@ private:
             const nlohmann::json& response
         );
 
+    /**
+     * @description Parse the body of the object
+     * @param &body nlohmann::json the body JSON object
+     *
+     * @return std::optional<std::string> of the body of the request if there is one
+     */
+    std::optional<std::string> parseBody(
+            const nlohmann::json& body
+        );
+
 
     /**
      * @description Parse the headers of the request
@@ -75,6 +85,11 @@ private:
      */
     std::map<std::string, std::string> parseQuery(
             const nlohmann::json& queryString
+        );
+
+    std::optional<std::string> getHeader(
+            const std::map<std::string, std::string>& headers,
+            const std::string_view name
         );
 };
 

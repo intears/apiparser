@@ -1,8 +1,10 @@
 #include "apigen/parser/har_parser.hpp"
+#include "apigen/core/string_utils.hpp"
 #include "apigen/core/types.hpp"
 #include "apigen/core/errors.hpp"
 
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 
 namespace apigen {
@@ -77,22 +79,49 @@ HttpRequest HarParser::parseRequest(const nlohmann::json &request) {
         result.query =
             parseQuery(request["queryString"]);
     }
+
+    if (request.contains("postData")) {
+        result.body = parseBody(request["postData"]);
+
+        const auto contentType = getHeader(result.headers, "Content-Type");
+
+        if (contentType) {
+            result.contentType = contentType;
+        }
+    }
     return result;
 }
 
 HttpResponse HarParser::parseResponse(const nlohmann::json &response) {
     HttpResponse result;
 
+    result.statusCode = response["status"].get<int>();
+    result.statusText = response["statusText"].get<std::string>();
+
     if (response.contains("headers")) {
         result.headers =
             parseHeaders(response["headers"]);
     }
 
-    result.statusCode = response["status"];
-    result.statusText = response["statusText"];
+    if (response.contains("content")) {
+        result.body =
+            parseBody(response["content"]);
+
+        const auto contentType = getHeader(result.headers, "Content-Type");
+        if (contentType) {
+            result.contentType = contentType;
+        }
+    }
 
     return result;
+}
 
+std::optional<std::string> HarParser::parseBody(const nlohmann::json &body) {
+    if (!body.contains("text")) {
+        return std::nullopt;
+    }
+
+    return body["text"].get<std::string>();
 }
 
 std::map<std::string, std::string> HarParser::parseHeaders(const nlohmann::json &headers){
@@ -122,4 +151,29 @@ HarParser::parseQuery(const nlohmann::json &queryString){
     return result;
 }
 
+std::optional<std::string> HarParser::getHeader(
+        const std::map<std::string, std::string>& headers,
+        const std::string_view name
+        ) {
+
+    for (const auto& [headerName, value] : headers) {
+        if (equalsIgnoreCase(headerName, name)) {
+            return value;
+        }
+    //     // check to see if they are the same length
+    //     if (headerName.size() != name.size()) {
+    //         continue;
+    //     }
+    //
+    //     // check to see fi they are the chars one by one
+    //     if (std::equal(headerName.begin(), headerName.end(), name.begin(),
+    //                 [](unsigned char CharA, unsigned char CharB) {
+    //                     return std::tolower(CharA) == std::tolower(CharB);
+    //                 })
+    //        ) {
+    //         return value;
+    //     }
+    }
+    return std::nullopt;
+}
 } // namespace apigen

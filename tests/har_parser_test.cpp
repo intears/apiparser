@@ -151,3 +151,53 @@ TEST_F(HarParserTest, ParseMutipleResponseTransacations)
 
 
 }
+
+TEST_F(HarParserTest, ParsesRequestBody)
+{
+    const auto document = parser.parse(fixture("response.har"));
+
+    ASSERT_EQ(document.transactions.size(), 3);
+
+    const auto& request =
+        document.transactions[1].request;
+
+    ASSERT_TRUE(request.body.has_value());
+
+    EXPECT_EQ(
+        request.body.value(),
+        R"({"name":"Alice","email":"alice@example.com"})"
+    );
+}
+
+TEST_F(HarParserTest, ParsesResponseBody)
+{
+    const auto document = parser.parse(fixture("response.har"));
+
+    ASSERT_EQ(document.transactions.size(), 3);
+
+    const auto& response =
+        document.transactions[1].response;
+
+    ASSERT_TRUE(response.has_value());
+
+    ASSERT_TRUE(response->body.has_value());
+
+    EXPECT_EQ(
+        response->body.value(),
+        R"({"id":124,"name":"Alice","email":"alice@example.com"})"
+    );
+}
+
+TEST_F(HarParserTest, GetContentTypeOfRequest)
+{
+    const auto document = parser.parse(fixture("response.har"));
+
+    const auto& request =
+        document.transactions[1].request;
+
+
+    EXPECT_EQ(
+        request.contentType,
+        "application/json"
+    );
+}
