@@ -5,7 +5,6 @@
 
 #include <fstream>
 #include <optional>
-#include <stdexcept>
 
 namespace apigen {
 
@@ -160,19 +159,6 @@ std::optional<std::string> HarParser::getHeader(
         if (equalsIgnoreCase(headerName, name)) {
             return value;
         }
-    //     // check to see if they are the same length
-    //     if (headerName.size() != name.size()) {
-    //         continue;
-    //     }
-    //
-    //     // check to see fi they are the chars one by one
-    //     if (std::equal(headerName.begin(), headerName.end(), name.begin(),
-    //                 [](unsigned char CharA, unsigned char CharB) {
-    //                     return std::tolower(CharA) == std::tolower(CharB);
-    //                 })
-    //        ) {
-    //         return value;
-    //     }
     }
     return std::nullopt;
 }
