@@ -48,7 +48,9 @@ target_sources(apigen
         src/main.cpp
         src/core/converter.cpp
         src/parser/har_parser.cpp
+        src/analyzer/url_parser.cpp
         src/generator/typescript_generator.cpp
+        src/analyzer/api_analyzer.cpp
 )
 
 target_include_directories(apigen
@@ -69,7 +71,11 @@ enable_testing()
 
 add_executable(apigen_tests
     tests/har_parser_test.cpp
+    tests/analyzer_test.cpp
+    tests/url_parser_test.cpp
     src/parser/har_parser.cpp
+    src/analyzer/api_analyzer.cpp
+    src/analyzer/url_parser.cpp
 )
 
 target_include_directories(apigen_tests
