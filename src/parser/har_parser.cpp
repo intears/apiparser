@@ -73,6 +73,10 @@ HttpDocument HarParser::parse(
             ] = header["value"].get<std::string>();
         }
 
+        if (request["headers"].contains("Content-Type")) {
+            transaction.request.contentType = request["headers"]["Content-Type"].get<std::string>();
+        }
+
         document.transactions.push_back(
             std::move(transaction)
         );
