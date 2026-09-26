@@ -31,7 +31,7 @@ namespace apigen {
                         std::move(request)
                 );
 
-                //4. Add response ovservation
+                //4. Add response observation
                 if (transaction.response.has_value()) {
                     const auto& response =
                         transaction.response.value();
