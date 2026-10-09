@@ -12,6 +12,7 @@ struct ApiEndpoint {
   std::string path;
 
   std::vector<ApiParameter> queryParameters;
+  std::vector<ApiParameter> pathParameters;
 
   std::vector<ApiRequest> requests;
   std::vector<ApiResponse> responses;

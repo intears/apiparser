@@ -2,7 +2,93 @@
 #include "apigen/analyzer/url_parser.hpp"
 #include "apigen/api/definition.hpp"
 #include <algorithm>
+#include <cctype>
+#include <string_view>
+#include <utility>
+#include <vector>
+
 namespace apigen {
+
+struct PathParameterValue {
+  std::string name;
+  std::string value;
+};
+
+struct NormalizedPath {
+  std::string path;
+  std::vector<PathParameterValue> parameters;
+};
+
+bool isNumericSegment(std::string_view segment) {
+  if (segment.empty()) {
+    return false;
+  }
+
+  for (const char character : segment) {
+    if (!std::isdigit(static_cast<unsigned char>(character))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool isUuidSegment(std::string_view segment) {
+  if (segment.size() != 36) {
+    return false;
+  }
+
+  for (std::size_t i = 0; i < segment.size(); ++i) {
+    if (i == 8 || i == 13 || i == 18 || i == 23) {
+      if (segment[i] != '-') {
+        return false;
+      }
+    } else if (!std::isxdigit(static_cast<unsigned char>(segment[i]))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+NormalizedPath normalizePath(std::string_view path) {
+  NormalizedPath result;
+
+  std::size_t start = 0;
+  std::size_t parameterIndex = 0;
+
+  while (start < path.size()) {
+    // preserve the spash separating path segments
+    if (path[start] == '/') {
+      result.path += '/';
+      ++start;
+      continue;
+    }
+
+    const auto end = path.find('/', start);
+    const auto length =
+        end == std::string_view::npos ? path.size() - start : end - start;
+
+    const auto segment = path.substr(start, length);
+
+    if (isNumericSegment(segment) || isUuidSegment(segment)) {
+      const std::string name = parameterIndex == 0
+                                   ? "id"
+                                   : "id" + std::to_string(parameterIndex + 1);
+
+      result.path += "{" + name + "}";
+      result.parameters.push_back({name, std::string(segment)});
+
+      ++parameterIndex;
+    } else {
+      result.path += segment;
+    }
+
+    start += length;
+  }
+
+  return result;
+}
 
 ApiDefinition APIAnalyzer::analyze(const HttpDocument &document) {
   ApiDefinition definition;
@@ -16,12 +102,33 @@ ApiDefinition APIAnalyzer::analyze(const HttpDocument &document) {
       definition.baseUrl = url.scheme + "://" + url.host;
     }
 
-    // 3. Find or create the endpoint.
+    // 3.normalize the path and  Find or create the endpoint.
+    const auto normalizedPath = normalizePath(url.path);
     auto &endpoint =
-        findOrCreateEndpoint(definition, transaction.request.method, url.path);
+        findOrCreateEndpoint(definition, transaction.request.method, normalizedPath.path);
 
     // 4. Accumulate query parameter examples.
     addQueryParameters(endpoint, url);
+
+    // 5. Accumulate path parameters
+    for (const auto &observed : normalizedPath.parameters) {
+      auto parameter = std::find_if(
+          endpoint.pathParameters.begin(), endpoint.pathParameters.end(),
+          [&](const ApiParameter &item) { return item.name == observed.name; });
+
+      if (parameter == endpoint.pathParameters.end()) {
+        ApiParameter newParameter;
+        newParameter.name = observed.name;
+        newParameter.location = ParameterLocation::Path;
+        newParameter.examples.push_back(observed.value);
+
+        endpoint.pathParameters.push_back(std::move(newParameter));
+      } else if (std::find(parameter->examples.begin(),
+                           parameter->examples.end(),
+                           observed.value) == parameter->examples.end()) {
+        parameter->examples.push_back(observed.value);
+      }
+    }
 
     // 5. Record the request.
     ApiRequest request;

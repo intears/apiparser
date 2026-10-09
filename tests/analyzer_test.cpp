@@ -104,3 +104,38 @@ TEST_F(AnalyzerTest, GroupsTransactionsAndAccumulatesObservations) {
   ASSERT_NE(response404, endpoint.responses.end());
   EXPECT_EQ(response404->examples.size(), 1);
 }
+
+
+TEST_F(AnalyzerTest, InfersNumericPathParameters) {
+    apigen::HttpDocument document;
+
+    apigen::HttpTransaction first;
+    first.request.method = "GET";
+    first.request.url = "https://example.com/users/123";
+    document.transactions.push_back(first);
+
+    apigen::HttpTransaction second;
+    second.request.method = "GET";
+    second.request.url = "https://example.com/users/456";
+    document.transactions.push_back(second);
+
+    const auto definition = analyzer.analyze(document);
+
+    ASSERT_EQ(definition.endpoints.size(), 1);
+
+    const auto& endpoint = definition.endpoints.front();
+
+    EXPECT_EQ(endpoint.method, "GET");
+    EXPECT_EQ(endpoint.path, "/users/{id}");
+
+    ASSERT_EQ(endpoint.pathParameters.size(), 1);
+
+    const auto& parameter = endpoint.pathParameters.front();
+
+    EXPECT_EQ(parameter.name, "id");
+    EXPECT_EQ(parameter.location, apigen::ParameterLocation::Path);
+    ASSERT_EQ(parameter.examples.size(), 2);
+
+    EXPECT_EQ(parameter.examples[0], "123");
+    EXPECT_EQ(parameter.examples[1], "456");
+}
