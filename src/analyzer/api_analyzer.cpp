@@ -5,56 +5,52 @@
 namespace apigen {
 
 ApiDefinition APIAnalyzer::analyze(const HttpDocument &document) {
-  ApiDefinition definiftion;
+  ApiDefinition definition;
 
   for (const auto &transaction : document.transactions) {
+    // 1. Parse the request URL.
+    const auto url = apigen::parseUrl(transaction.request.url);
 
-    ApiDefinition definition;
+    // 2. Set the API base URL from the first transaction.
+    if (definition.baseUrl.empty()) {
+      definition.baseUrl = url.scheme + "://" + url.host;
+    }
 
-    for (const auto &transaction : document.transactions) {
+    // 3. Find or create the endpoint.
+    auto &endpoint =
+        findOrCreateEndpoint(definition, transaction.request.method, url.path);
 
-      // 1. parse URL
-      const auto url = apigen::parseUrl(transaction.request.url);
+    // 4. Accumulate query parameter examples.
+    addQueryParameters(endpoint, url);
 
-      // 2. Find/create endpoint
-      auto &endpoint = findOrCreateEndpoint(
-          definition, transaction.request.method, url.path);
+    // 5. Record the request.
+    ApiRequest request;
+    request.contentType = transaction.request.contentType;
+    request.body = transaction.request.body;
 
-      addQueryParameters(endpoint, url);
+    endpoint.requests.push_back(std::move(request));
 
-      // 3. Add request oversvation
-      ApiRequest request;
+    // 6. Accumulate the response under its status code.
+    if (transaction.response.has_value()) {
+      const auto &response = transaction.response.value();
 
-      request.contentType = transaction.request.contentType;
+      auto &apiResponse = findOrCreateResponse(endpoint, response.statusCode);
 
-      request.body = transaction.request.body;
+      apiResponse.contentType = response.contentType;
 
-      endpoint.requests.push_back(std::move(request));
+      if (response.body.has_value()) {
+        const auto &body = response.body.value();
 
-      // 4. Add response observation
-      if (transaction.response.has_value()) {
-        const auto &response = transaction.response.value();
-
-        ApiResponse apiResponse =
-            findOrCreateResponse(endpoint, response.statusCode);
-
-        apiResponse.statusCode = response.statusCode;
-
-        apiResponse.contentType = response.contentType;
-
-        if (response.body.has_value()) {
-          apiResponse.examples.push_back(response.body.value());
+        // Keep distinct response examples.
+        if (std::find(apiResponse.examples.begin(), apiResponse.examples.end(),
+                      body) == apiResponse.examples.end()) {
+          apiResponse.examples.push_back(body);
         }
-
-        endpoint.responses.push_back(std::move(apiResponse));
       }
-      // 5. Later: infer schemas
-      // 6. Later: normalize pathing
-      return definition;
     }
   }
 
-  return definiftion;
+  return definition;
 }
 
 ApiResponse &APIAnalyzer::findOrCreateResponse(ApiEndpoint &endpoint,
@@ -114,6 +110,7 @@ void APIAnalyzer::addQueryParameters(ApiEndpoint &endpoint,
       ApiParameter newParameter;
 
       newParameter.name = name;
+      newParameter.location = ParameterLocation::Query;
       newParameter.examples = values;
 
       endpoint.queryParameters.push_back(std::move(newParameter));
