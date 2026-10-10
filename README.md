@@ -304,7 +304,7 @@ numeric/UUID segments elsewhere.
 parameter name using separator
 handling, camel-casing, and basic
 plural reduction.
----
+\---
 
 Some helpers are in an anonymous namespace in `api\_analyzer.cpp`, so
 they are implementation details rather than public API.
