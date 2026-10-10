@@ -126,16 +126,69 @@ TEST_F(AnalyzerTest, InfersNumericPathParameters) {
     const auto& endpoint = definition.endpoints.front();
 
     EXPECT_EQ(endpoint.method, "GET");
-    EXPECT_EQ(endpoint.path, "/users/{id}");
+    EXPECT_EQ(endpoint.path, "/users/{userId}");
 
     ASSERT_EQ(endpoint.pathParameters.size(), 1);
 
     const auto& parameter = endpoint.pathParameters.front();
 
-    EXPECT_EQ(parameter.name, "id");
+    EXPECT_EQ(parameter.name, "userId");
     EXPECT_EQ(parameter.location, apigen::ParameterLocation::Path);
     ASSERT_EQ(parameter.examples.size(), 2);
 
     EXPECT_EQ(parameter.examples[0], "123");
     EXPECT_EQ(parameter.examples[1], "456");
+}
+
+
+TEST_F(AnalyzerTest, InfersNamesForNestedResourceParameters) {
+    apigen::HttpDocument document;
+
+    apigen::HttpTransaction transaction;
+    transaction.request.method = "GET";
+    transaction.request.url =
+        "https://example.com/users/123/posts/456";
+
+    document.transactions.push_back(transaction);
+
+    const auto definition = analyzer.analyze(document);
+
+    ASSERT_EQ(definition.endpoints.size(), 1);
+
+    const auto& endpoint = definition.endpoints.front();
+
+    EXPECT_EQ(endpoint.path, "/users/{userId}/posts/{postId}");
+
+    ASSERT_EQ(endpoint.pathParameters.size(), 2);
+
+    EXPECT_EQ(endpoint.pathParameters[0].name, "userId");
+    EXPECT_EQ(endpoint.pathParameters[0].location,
+              apigen::ParameterLocation::Path);
+    ASSERT_EQ(endpoint.pathParameters[0].examples.size(), 1);
+    EXPECT_EQ(endpoint.pathParameters[0].examples[0], "123");
+
+    EXPECT_EQ(endpoint.pathParameters[1].name, "postId");
+    EXPECT_EQ(endpoint.pathParameters[1].location,
+              apigen::ParameterLocation::Path);
+    ASSERT_EQ(endpoint.pathParameters[1].examples.size(), 1);
+    EXPECT_EQ(endpoint.pathParameters[1].examples[0], "456");
+}
+
+TEST_F(AnalyzerTest, DoesNotInferParameterForStaticTextSegment) {
+    apigen::HttpDocument document;
+
+    apigen::HttpTransaction transaction;
+    transaction.request.method = "GET";
+    transaction.request.url = "https://example.com/users/me";
+
+    document.transactions.push_back(transaction);
+
+    const auto definition = analyzer.analyze(document);
+
+    ASSERT_EQ(definition.endpoints.size(), 1);
+
+    const auto& endpoint = definition.endpoints.front();
+
+    EXPECT_EQ(endpoint.path, "/users/me");
+    EXPECT_TRUE(endpoint.pathParameters.empty());
 }

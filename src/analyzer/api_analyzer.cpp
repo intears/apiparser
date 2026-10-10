@@ -8,7 +8,7 @@
 #include <vector>
 
 namespace apigen {
-
+namespace {
 struct PathParameterValue {
   std::string name;
   std::string value;
@@ -18,6 +18,60 @@ struct NormalizedPath {
   std::string path;
   std::vector<PathParameterValue> parameters;
 };
+/**
+ * @description creates the param name for the resource.
+ * This will take the /user/id and make it return {userId}.
+ * This will also remove plurals and camelCase the entry
+ *
+ * @param std::string_view resource the resource name that we want to standardize
+ *
+ * @return std::string the new resource name after fixing
+ *
+ */
+std::string parameterNameForResource(std::string_view resource) {
+  if (resource.empty()) {
+    return "id";
+  }
+
+  // convert names like user-profiles or user_profiles
+  // to camelCase vesrison: userProfiles
+  std::string name;
+  bool capitalizeNext = false;
+
+  for (const char character : resource) {
+    if (character == '-' || character == '_') {
+      capitalizeNext = true;
+      continue;
+    }
+
+    const auto c = static_cast<unsigned char>(character);
+
+    if (name.empty()) {
+      name += static_cast<char>(std::tolower(c));
+    } else if (capitalizeNext) {
+      name += static_cast<char>(std::toupper(c));
+    } else {
+      name += static_cast<char>(std::tolower(c));
+    }
+
+    capitalizeNext = false;
+  }
+
+  // Singularize common plural resource names.
+  if (name.size() > 3 && name.compare(name.size() - 3, 3, "ies") == 0) {
+    name.replace(name.size() - 3, 3, "y");
+  } else if (name.size() > 4 &&
+             (name.ends_with("sses") || name.ends_with("shes") ||
+              name.ends_with("ches") || name.ends_with("xes") ||
+              name.ends_with("zes"))) {
+    name.erase(name.size() - 2);
+  } else if (name.size() > 2 && name.ends_with("s") && !name.ends_with("ss") &&
+             !name.ends_with("us") && !name.ends_with("is")) {
+    name.pop_back();
+  }
+
+  return name.empty() ? "id" : name + "Id";
+}
 
 bool isNumericSegment(std::string_view segment) {
   if (segment.empty()) {
@@ -52,43 +106,62 @@ bool isUuidSegment(std::string_view segment) {
 }
 
 NormalizedPath normalizePath(std::string_view path) {
-  NormalizedPath result;
+    NormalizedPath result;
 
-  std::size_t start = 0;
-  std::size_t parameterIndex = 0;
+    std::string previousSegment;
+    std::vector<std::string> usedNames;
 
-  while (start < path.size()) {
-    // preserve the spash separating path segments
-    if (path[start] == '/') {
-      result.path += '/';
-      ++start;
-      continue;
+    std::size_t start = 0;
+
+    while (start < path.size()) {
+        if (path[start] == '/') {
+            result.path += '/';
+            ++start;
+            continue;
+        }
+
+        const auto end = path.find('/', start);
+        const auto length =
+            end == std::string_view::npos
+                ? path.size() - start
+                : end - start;
+
+        const auto segment = path.substr(start, length);
+
+        if (isNumericSegment(segment) || isUuidSegment(segment)) {
+            std::string name = parameterNameForResource(previousSegment);
+
+            // Avoid repeating a parameter name in the same path.
+            const std::string baseName = name;
+            std::size_t suffix = 2;
+
+            while (std::find(
+                       usedNames.begin(),
+                       usedNames.end(),
+                       name
+                   ) != usedNames.end()) {
+                name = baseName + std::to_string(suffix++);
+            }
+
+            usedNames.push_back(name);
+
+            result.path += "{" + name + "}";
+            result.parameters.push_back({
+                name,
+                std::string(segment)
+            });
+        } else {
+            result.path += segment;
+            previousSegment = std::string(segment);
+        }
+
+        start += length;
     }
 
-    const auto end = path.find('/', start);
-    const auto length =
-        end == std::string_view::npos ? path.size() - start : end - start;
-
-    const auto segment = path.substr(start, length);
-
-    if (isNumericSegment(segment) || isUuidSegment(segment)) {
-      const std::string name = parameterIndex == 0
-                                   ? "id"
-                                   : "id" + std::to_string(parameterIndex + 1);
-
-      result.path += "{" + name + "}";
-      result.parameters.push_back({name, std::string(segment)});
-
-      ++parameterIndex;
-    } else {
-      result.path += segment;
-    }
-
-    start += length;
-  }
-
-  return result;
+    return result;
 }
+
+} // namespace
 
 ApiDefinition APIAnalyzer::analyze(const HttpDocument &document) {
   ApiDefinition definition;
@@ -104,8 +177,8 @@ ApiDefinition APIAnalyzer::analyze(const HttpDocument &document) {
 
     // 3.normalize the path and  Find or create the endpoint.
     const auto normalizedPath = normalizePath(url.path);
-    auto &endpoint =
-        findOrCreateEndpoint(definition, transaction.request.method, normalizedPath.path);
+    auto &endpoint = findOrCreateEndpoint(
+        definition, transaction.request.method, normalizedPath.path);
 
     // 4. Accumulate query parameter examples.
     addQueryParameters(endpoint, url);
