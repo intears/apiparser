@@ -6,6 +6,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <set>
 
 namespace apigen {
 namespace {
@@ -18,6 +19,7 @@ struct NormalizedPath {
   std::string path;
   std::vector<PathParameterValue> parameters;
 };
+
 /**
  * @description creates the param name for the resource.
  * This will take the /user/id and make it return {userId}.
@@ -161,76 +163,270 @@ NormalizedPath normalizePath(std::string_view path) {
     return result;
 }
 
+
+using PathSegments = std::vector<std::string>;
+
+PathSegments splitPath(std::string_view path) {
+    PathSegments segments;
+    std::size_t start = 0;
+
+    while (start < path.size()) {
+        while (start < path.size() && path[start] == '/') {
+            ++start;
+        }
+
+        if (start == path.size()) {
+            break;
+        }
+
+        const auto end = path.find('/', start);
+        const auto length = end == std::string_view::npos
+            ? path.size() - start
+            : end - start;
+
+        segments.emplace_back(path.substr(start, length));
+        start += length;
+    }
+
+    return segments;
+}
+
+std::string joinPath(const PathSegments& segments) {
+    std::string path = "/";
+
+    for (std::size_t i = 0; i < segments.size(); ++i) {
+        if (i > 0) {
+            path += '/';
+        }
+
+        path += segments[i];
+    }
+
+    return path;
+}
+
+bool isStaticRouteSegment(std::string_view segment) {
+    static const std::set<std::string> staticRoutes = {
+        "me", "self", "settings", "search", "create",
+        "delete", "new", "current", "login", "logout",
+        "register", "refresh", "count", "stats"
+    };
+
+    return staticRoutes.contains(std::string(segment));
+}
+
+// Build a comparison key that ignores the candidate segment.
+// Numeric and UUID segments elsewhere are also treated as dynamic.
+std::string makeComparisonKey(
+    std::string_view method,
+    const PathSegments& segments,
+    std::size_t candidateIndex
+) {
+    std::string key(method);
+    key += "|" + std::to_string(segments.size());
+    key += "|" + std::to_string(candidateIndex);
+
+    for (std::size_t i = 0; i < segments.size(); ++i) {
+        key += "|";
+
+        if (i == candidateIndex ||
+            isNumericSegment(segments[i]) ||
+            isUuidSegment(segments[i])) {
+            key += "*";
+        } else {
+            key += std::to_string(segments[i].size());
+            key += ":";
+            key += segments[i];
+        }
+    }
+
+    return key;
+}
+
+
 } // namespace
 
-ApiDefinition APIAnalyzer::analyze(const HttpDocument &document) {
-  ApiDefinition definition;
+ApiDefinition APIAnalyzer::analyze(const HttpDocument& document) {
+    struct Observation {
+        const HttpTransaction* transaction;
+        ParsedUrl url;
+        PathSegments segments;
+    };
 
-  for (const auto &transaction : document.transactions) {
-    // 1. Parse the request URL.
-    const auto url = apigen::parseUrl(transaction.request.url);
+    ApiDefinition definition;
+    std::vector<Observation> observations;
+    observations.reserve(document.transactions.size());
 
-    // 2. Set the API base URL from the first transaction.
-    if (definition.baseUrl.empty()) {
-      definition.baseUrl = url.scheme + "://" + url.host;
-    }
+    // Pass 1: collect the raw paths.
+    for (const auto& transaction : document.transactions) {
+        auto url = parseUrl(transaction.request.url);
 
-    // 3.normalize the path and  Find or create the endpoint.
-    const auto normalizedPath = normalizePath(url.path);
-    auto &endpoint = findOrCreateEndpoint(
-        definition, transaction.request.method, normalizedPath.path);
+        observations.push_back({
+            &transaction,
+            url,
+            splitPath(url.path)
+        });
 
-    // 4. Accumulate query parameter examples.
-    addQueryParameters(endpoint, url);
-
-    // 5. Accumulate path parameters
-    for (const auto &observed : normalizedPath.parameters) {
-      auto parameter = std::find_if(
-          endpoint.pathParameters.begin(), endpoint.pathParameters.end(),
-          [&](const ApiParameter &item) { return item.name == observed.name; });
-
-      if (parameter == endpoint.pathParameters.end()) {
-        ApiParameter newParameter;
-        newParameter.name = observed.name;
-        newParameter.location = ParameterLocation::Path;
-        newParameter.examples.push_back(observed.value);
-
-        endpoint.pathParameters.push_back(std::move(newParameter));
-      } else if (std::find(parameter->examples.begin(),
-                           parameter->examples.end(),
-                           observed.value) == parameter->examples.end()) {
-        parameter->examples.push_back(observed.value);
-      }
-    }
-
-    // 5. Record the request.
-    ApiRequest request;
-    request.contentType = transaction.request.contentType;
-    request.body = transaction.request.body;
-
-    endpoint.requests.push_back(std::move(request));
-
-    // 6. Accumulate the response under its status code.
-    if (transaction.response.has_value()) {
-      const auto &response = transaction.response.value();
-
-      auto &apiResponse = findOrCreateResponse(endpoint, response.statusCode);
-
-      apiResponse.contentType = response.contentType;
-
-      if (response.body.has_value()) {
-        const auto &body = response.body.value();
-
-        // Keep distinct response examples.
-        if (std::find(apiResponse.examples.begin(), apiResponse.examples.end(),
-                      body) == apiResponse.examples.end()) {
-          apiResponse.examples.push_back(body);
+        if (definition.baseUrl.empty()) {
+            definition.baseUrl = url.scheme + "://" + url.host;
         }
-      }
     }
-  }
 
-  return definition;
+    // Record the distinct values observed at each candidate position.
+    std::map<std::string, std::set<std::string>> observedValues;
+
+    for (const auto& observation : observations) {
+        const auto& method = observation.transaction->request.method;
+
+        for (std::size_t i = 0; i < observation.segments.size(); ++i) {
+            const auto& segment = observation.segments[i];
+
+            // Numeric and UUID segments are already recognized.
+            if (isNumericSegment(segment) ||
+                isUuidSegment(segment) ||
+                isStaticRouteSegment(segment)) {
+                continue;
+            }
+
+            const auto key = makeComparisonKey(
+                method,
+                observation.segments,
+                i
+            );
+
+            observedValues[key].insert(segment);
+        }
+    }
+
+    // Pass 2: normalize paths and aggregate endpoint observations.
+    for (const auto& observation : observations) {
+        const auto& transaction = *observation.transaction;
+        const auto& method = transaction.request.method;
+
+        PathSegments normalizedSegments;
+        NormalizedPath normalizedPath;
+        std::string previousSegment;
+        std::vector<std::string> usedNames;
+
+        for (std::size_t i = 0; i < observation.segments.size(); ++i) {
+            const auto& segment = observation.segments[i];
+
+            bool isParameter =
+                isNumericSegment(segment) || isUuidSegment(segment);
+
+            if (!isParameter && !isStaticRouteSegment(segment)) {
+                const auto key = makeComparisonKey(
+                    method,
+                    observation.segments,
+                    i
+                );
+
+                const auto it = observedValues.find(key);
+
+                isParameter =
+                    it != observedValues.end() &&
+                    it->second.size() > 1;
+            }
+
+            if (isParameter) {
+                std::string name =
+                    parameterNameForResource(previousSegment);
+
+                const std::string baseName = name;
+                std::size_t suffix = 2;
+
+                while (std::find(
+                           usedNames.begin(),
+                           usedNames.end(),
+                           name
+                       ) != usedNames.end()) {
+                    name = baseName + std::to_string(suffix++);
+                }
+
+                usedNames.push_back(name);
+                normalizedSegments.push_back("{" + name + "}");
+
+                normalizedPath.parameters.push_back({
+                    name,
+                    segment
+                });
+            } else {
+                normalizedSegments.push_back(segment);
+                previousSegment = segment;
+            }
+        }
+
+        normalizedPath.path = joinPath(normalizedSegments);
+
+        auto& endpoint = findOrCreateEndpoint(
+            definition,
+            method,
+            normalizedPath.path
+        );
+
+        addQueryParameters(endpoint, observation.url);
+
+        // Accumulate path parameter examples.
+        for (const auto& observed : normalizedPath.parameters) {
+            auto parameter = std::find_if(
+                endpoint.pathParameters.begin(),
+                endpoint.pathParameters.end(),
+                [&](const ApiParameter& item) {
+                    return item.name == observed.name;
+                }
+            );
+
+            if (parameter == endpoint.pathParameters.end()) {
+                ApiParameter newParameter;
+                newParameter.name = observed.name;
+                newParameter.location = ParameterLocation::Path;
+                newParameter.examples.push_back(observed.value);
+
+                endpoint.pathParameters.push_back(std::move(newParameter));
+            } else if (
+                std::find(
+                    parameter->examples.begin(),
+                    parameter->examples.end(),
+                    observed.value
+                ) == parameter->examples.end()
+            ) {
+                parameter->examples.push_back(observed.value);
+            }
+        }
+
+        // Record the request.
+        ApiRequest request;
+        request.contentType = transaction.request.contentType;
+        request.body = transaction.request.body;
+
+        endpoint.requests.push_back(std::move(request));
+
+        // Aggregate responses by status code.
+        if (transaction.response.has_value()) {
+            const auto& response = transaction.response.value();
+
+            auto& apiResponse = findOrCreateResponse(
+                endpoint,
+                response.statusCode
+            );
+
+            apiResponse.contentType = response.contentType;
+
+            if (response.body.has_value()) {
+                const auto& body = response.body.value();
+
+                if (std::find(
+                        apiResponse.examples.begin(),
+                        apiResponse.examples.end(),
+                        body
+                    ) == apiResponse.examples.end()) {
+                    apiResponse.examples.push_back(body);
+                }
+            }
+        }
+    }
+
+    return definition;
 }
 
 ApiResponse &APIAnalyzer::findOrCreateResponse(ApiEndpoint &endpoint,

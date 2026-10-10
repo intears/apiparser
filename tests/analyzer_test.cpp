@@ -192,3 +192,77 @@ TEST_F(AnalyzerTest, DoesNotInferParameterForStaticTextSegment) {
     EXPECT_EQ(endpoint.path, "/users/me");
     EXPECT_TRUE(endpoint.pathParameters.empty());
 }
+
+TEST_F(AnalyzerTest, InfersStringPathParametersFromMultipleObservations) {
+    apigen::HttpDocument document;
+
+    for (const auto* username : {"alex", "jordan"}) {
+        apigen::HttpTransaction transaction;
+        transaction.request.method = "GET";
+        transaction.request.url =
+            std::string("https://example.com/users/") + username;
+
+        document.transactions.push_back(transaction);
+    }
+
+    const auto definition = analyzer.analyze(document);
+
+    ASSERT_EQ(definition.endpoints.size(), 1);
+
+    const auto& endpoint = definition.endpoints.front();
+
+    EXPECT_EQ(endpoint.path, "/users/{userId}");
+    ASSERT_EQ(endpoint.pathParameters.size(), 1);
+
+    const auto& parameter = endpoint.pathParameters.front();
+
+    EXPECT_EQ(parameter.name, "userId");
+    EXPECT_EQ(parameter.location, apigen::ParameterLocation::Path);
+    ASSERT_EQ(parameter.examples.size(), 2);
+
+    EXPECT_NE(
+        std::find(parameter.examples.begin(),
+                  parameter.examples.end(), "alex"),
+        parameter.examples.end()
+    );
+
+    EXPECT_NE(
+        std::find(parameter.examples.begin(),
+                  parameter.examples.end(), "jordan"),
+        parameter.examples.end()
+    );
+}
+
+
+TEST_F(AnalyzerTest, PreservesDistinctStaticUserRoutes) {
+    apigen::HttpDocument document;
+
+    for (const auto* route : {"me", "settings"}) {
+        apigen::HttpTransaction transaction;
+        transaction.request.method = "GET";
+        transaction.request.url =
+            std::string("https://example.com/users/") + route;
+
+        document.transactions.push_back(transaction);
+    }
+
+    const auto definition = analyzer.analyze(document);
+
+    ASSERT_EQ(definition.endpoints.size(), 2);
+
+    EXPECT_TRUE(std::any_of(
+        definition.endpoints.begin(),
+        definition.endpoints.end(),
+        [](const apigen::ApiEndpoint& endpoint) {
+            return endpoint.path == "/users/me";
+        }
+    ));
+
+    EXPECT_TRUE(std::any_of(
+        definition.endpoints.begin(),
+        definition.endpoints.end(),
+        [](const apigen::ApiEndpoint& endpoint) {
+            return endpoint.path == "/users/settings";
+        }
+    ));
+}
