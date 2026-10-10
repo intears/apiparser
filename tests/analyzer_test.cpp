@@ -266,3 +266,77 @@ TEST_F(AnalyzerTest, PreservesDistinctStaticUserRoutes) {
         }
     ));
 }
+
+TEST_F(AnalyzerTest, InfersNestedResourcePathParameters) {
+    apigen::HttpDocument document;
+
+    for (const auto& [userId, postId] :
+         std::vector<std::pair<std::string, std::string>>{
+             {"123", "456"},
+             {"789", "012"}
+         }) {
+        apigen::HttpTransaction transaction;
+        transaction.request.method = "GET";
+        transaction.request.url =
+            "https://example.com/users/" + userId +
+            "/posts/" + postId;
+
+        document.transactions.push_back(transaction);
+    }
+
+    const auto definition = analyzer.analyze(document);
+
+    ASSERT_EQ(definition.endpoints.size(), 1);
+
+    const auto& endpoint = definition.endpoints.front();
+    EXPECT_EQ(endpoint.path, "/users/{userId}/posts/{postId}");
+
+    ASSERT_EQ(endpoint.pathParameters.size(), 2);
+
+    EXPECT_EQ(endpoint.pathParameters[0].name, "userId");
+    EXPECT_EQ(endpoint.pathParameters[0].location,
+              apigen::ParameterLocation::Path);
+    EXPECT_EQ(endpoint.pathParameters[0].examples.size(), 2);
+
+    EXPECT_EQ(endpoint.pathParameters[1].name, "postId");
+    EXPECT_EQ(endpoint.pathParameters[1].location,
+              apigen::ParameterLocation::Path);
+    EXPECT_EQ(endpoint.pathParameters[1].examples.size(), 2);
+}
+
+TEST_F(AnalyzerTest, DoesNotMergeDifferentStaticPathStructures) {
+    apigen::HttpDocument document;
+
+    for (const auto* path : {
+             "/users/alex/profile",
+             "/users/jordan/settings"
+         }) {
+        apigen::HttpTransaction transaction;
+        transaction.request.method = "GET";
+        transaction.request.url = std::string("https://example.com") + path;
+
+        document.transactions.push_back(transaction);
+    }
+
+    const auto definition = analyzer.analyze(document);
+
+    EXPECT_EQ(definition.endpoints.size(), 2);
+}
+
+
+TEST_F(AnalyzerTest, DoesNotInferStringParameterFromSingleObservation) {
+    apigen::HttpDocument document;
+
+    apigen::HttpTransaction transaction;
+    transaction.request.method = "GET";
+    transaction.request.url = "https://example.com/users/alex";
+    document.transactions.push_back(transaction);
+
+    const auto definition = analyzer.analyze(document);
+
+    ASSERT_EQ(definition.endpoints.size(), 1);
+
+    const auto& endpoint = definition.endpoints.front();
+    EXPECT_EQ(endpoint.path, "/users/alex");
+    EXPECT_TRUE(endpoint.pathParameters.empty());
+}
